@@ -10,6 +10,11 @@ a few things from the MARL website for it to run.
   2. Labels
   3. A map from chord strings to integers
 
+Training will run for a predefined number of iterations, at which point the
+parameters of the network will be saved to the specified pickle file. This
+behavior can be realized at any time with the standard keyboard interrupt at
+the command line (ctrl+C).
+
 Sample call:
 $ python chroma_learning.py \
 chord_dft1025_train_data.npy \
@@ -150,22 +155,22 @@ def prepare_data(train_file, label_file, label_map, batch_size=100):
 
     Parameters
     ----------
-    train_file: str
+    train_file : str
         Path to a numpy file of data observations.
-    label_file: str
+    label_file : str
         Path to a numpy file of data labels.
-    label_map: dict
+    label_map : dict
         Dictionary mapping string labels to integers.
-    batch_size: int, default=100
+    batch_size : int, default=100
         Number of datapoints to return for each batch.
 
     Returns
     -------
-    shuffler: generator
+    shuffler : generator
         Data generator that returns an (x,y) tuple for each call
         to next().
-    stats: dict
-        Coefficient means and standard deviations.
+    stats : dict
+        Coefficient means and standard deviations, keyed by 'mu' and 'sigma'.
     """
     data, labels = np.load(train_file), np.load(label_file)
     y_true = np.array([label_map.get(l, -1) for l in labels])
@@ -188,6 +193,11 @@ def hwr(x_input):
     ----------
     x : theano symbolic type
         Object to half-wave rectify.
+
+    Returns
+    -------
+    z : theano symbolic type
+        Result of the function.
     """
     return 0.5 * (T.abs_(x_input) + x_input)
 
@@ -201,9 +211,6 @@ def build_network():
         Callable function that takes (x, y, eta) as arguments, returning the
         scalar loss over the data x; implicitly updates the parameters of the
         network given the learning rate eta.
-    chroma_fx: compiled theano function
-        Callable function that takes (x) as an argument; returns the chroma
-        representation for the input data.
     params: dict
         All trainable parameters in the network.
     """
@@ -283,21 +290,21 @@ def train_network(objective_fx, shuffler, learning_rate, num_iterations,
 
     Parameters
     ----------
-    objective_fx: compiled theano function
+    objective_fx : compiled theano function
         First function returned by build network; updates the parameters as
         data is passed to it.
-    shuffler: generator
+    shuffler : generator
         Data source with a next() method, returning a two-element tuple (x,y).
-    learning_rate: scalar
+    learning_rate : scalar
         Update rate for each gradient step.
-    num_iterations: int
+    num_iterations : int
         Number of update iterations to run.
-    print_frequency: int
+    print_frequency : int
         Number of iterations between printing information to the console.
 
     Returns
     -------
-    train_loss: np.ndarray
+    train_loss : np.ndarray
         Vector of training loss values over iterations.
     """
     loss_values = np.zeros(num_iterations)
@@ -321,9 +328,9 @@ def save_parameters(params, output_file):
 
     Parameters
     ----------
-    params: dict
+    params : dict
         Symbolic Theano shared parameters keyed by name.
-    output_file: string
+    output_file : string
         Path to output file.
     """
     param_values = dict()
@@ -340,7 +347,7 @@ def main(args):
 
     Parameters
     ----------
-    args: ArgumentParser
+    args : ArgumentParser
         Initialized argument object.
     """
     obj_fx, params = build_network()
