@@ -71,12 +71,12 @@ def generate_chroma_templates(num_qualities):
 
     Parameters
     ----------
-    num_qualities: int
+    num_qualities : int
         Number of chord qualities to generate chroma templates.
 
     Returns
     -------
-    templates: np.ndarray
+    templates : np.ndarray
         Array of chroma templates, ordered by quality. The first 12 are Major,
         the next 12 are minor, and so on.
     """
@@ -207,11 +207,11 @@ def build_network():
 
     Returns
     -------
-    objective_fx: compiled theano function
+    objective_fx : compiled theano function
         Callable function that takes (x, y, eta) as arguments, returning the
         scalar loss over the data x; implicitly updates the parameters of the
         network given the learning rate eta.
-    params: dict
+    params : dict
         All trainable parameters in the network.
     """
     # ----------------------------------------------------
