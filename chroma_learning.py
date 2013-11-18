@@ -150,7 +150,7 @@ def data_shuffler(data, labels, batch_size=100):
         yield np.array(x_m), np.array(y_m)
 
 
-def prepare_data(train_file, label_file, label_map, batch_size=100):
+def prepare_training_data(train_file, label_file, label_map, batch_size=100):
     """Create a data generator from input data and label files.
 
     Parameters
@@ -272,6 +272,8 @@ def build_network():
     # ----------------------------------------------------
     # Step 4. Compile wicked fast theano functions!
     # ----------------------------------------------------
+    # Function that computes the mini-batch loss *and* updates the network
+    # parameters in-line.
     objective_fx = theano.function(inputs=[x_input, y_target, eta],
                                    outputs=scalar_loss,
                                    updates=updates,
@@ -352,10 +354,8 @@ def main(args):
     """
     obj_fx, params = build_network()
     label_map = load_label_map(args.label_map)
-    shuffler, stats = prepare_data(args.train_file,
-                                   args.label_file,
-                                   label_map,
-                                   batch_size=args.batch_size)
+    shuffler, stats = prepare_training_data(
+        args.train_file, args.label_file, label_map, args.batch_size)
 
     # Set network's mu and sigma values.
     for name in ['mu', 'sigma']:
