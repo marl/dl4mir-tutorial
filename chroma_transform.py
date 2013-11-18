@@ -3,6 +3,10 @@
 Contact: <ejhumphrey@nyu.edu>
 Homepage: http://marl.smusic.nyu.edu
 
+This mainfile demonstrates how to apply a trained network to never-before seen
+wavefiles. Note that this is unlikely to be the most efficient strategy to
+process a large collection of content, but it gets the point across.
+
 Sample call:
 $ python chroma_transform.py \
 epiano-chords.wav \
@@ -24,14 +28,25 @@ FRAMESIZE = 2048
 
 
 def signal_buffer(input_file, hopsize=441, batchsize=500):
-    """
+    """Generator to step through an input wavefile.
+
+    Note: The framesize is fixed due to preselected parameters.
 
     Parameters
     ----------
+    input_file : str
+        Path to an input wave file. Samplerate must be 44100 or the method
+        will die loudly.
+    hopsize : int
+        Number of samples between frames.
+    batchsize : int
+        Number of frames to yield at a time.
 
-    Returns
+    Yields
     -------
-
+    batch : np.ndarray
+        Matrix of sample data. The length of the final batch will almost
+        certainly be smaller than the requested batchsize.
     """
     samplerate, waveform = wavfile.read(input_file)
     waveform = waveform.astype('float')*np.power(2.0, -15.0)
@@ -63,6 +78,11 @@ def hwr(x_input):
     ----------
     x : theano symbolic type
         Object to half-wave rectify.
+
+    Returns
+    -------
+    z : theano symbolic type
+        Result of the function.
     """
     return 0.5 * (T.abs_(x_input) + x_input)
 
@@ -72,12 +92,12 @@ def build_network(param_values):
 
     Parameters
     ----------
-    param_values: dict
+    param_values : dict
         Parameters for the network.
 
     Returns
     -------
-    chroma_fx: compiled theano function
+    chroma_fx : compiled theano function
         Callable function that takes (x) as an argument; returns the chroma
         representation for the input data.
     """
@@ -121,12 +141,12 @@ def load_parameters(parameter_file):
 
     Parameters
     ----------
-    parameter_file: str
+    parameter_file : str
         Path to a pickled file of parameters.
 
     Returns
     -------
-    param_values: dict
+    param_values : dict
         Numpy array parameter coefficients keyed by name.
     """
     return cPickle.load(open(parameter_file))
@@ -137,15 +157,15 @@ def transformer(sigbuff, chroma_fx):
 
     Parameters
     ----------
-    sigbuff: generator
+    sigbuff : generator
         Initialized signal buffer.
-    chroma_fx: compiled theano function
+    chroma_fx : compiled theano function
         Function that consumes 2D matrices of DFT coefficients and outputs
         chroma.
 
     Returns
     -------
-    chroma: np.ndarray
+    chroma : np.ndarray
         Matrix of time-aligned chroma vectors, shaped (num_frames, 12).
     """
     win = np.hanning(FRAMESIZE)[np.newaxis, :]
@@ -158,7 +178,7 @@ def main(args):
 
     Parameters
     ----------
-    args: ArgumentParser
+    args : ArgumentParser
         Initialized argument object.
     """
     param_values = load_parameters(args.parameter_file)
