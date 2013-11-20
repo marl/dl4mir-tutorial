@@ -215,15 +215,15 @@ def build_network():
                                    updates=updates,
                                    allow_input_downcast=True)
 
-    pred_fx = theano.function(inputs=[x_input],
-                              outputs=z_output,
-                              allow_input_downcast=True)
+    prediction_fx = theano.function(inputs=[x_input],
+                                    outputs=z_output,
+                                    allow_input_downcast=True)
 
     # Add mu and sigma variables now, as we don't want to update them
     # during training.
     network_params.update({mu_obs.name: mu_obs,
                            sigma_obs.name: sigma_obs})
-    return objective_fx, pred_fx, network_params
+    return objective_fx, prediction_fx, network_params
 
 
 def train_network(objective_fx, shuffler, learning_rate, num_iterations,
@@ -282,7 +282,7 @@ def main(args):
     args : ArgumentParser
         Initialized argument object.
     """
-    obj_fx, pred_fx, params = build_network()
+    objective_fx, prediction_fx, params = build_network()
     shuffler, stats = prepare_training_data(
         args.train_data_file, args.train_label_file, args.batch_size)
 
@@ -290,7 +290,7 @@ def main(args):
     for name in ['mu', 'sigma']:
         params[name].set_value(stats[name])
 
-    errors = train_network(obj_fx,
+    errors = train_network(objective_fx,
                            shuffler,
                            args.learning_rate,
                            args.max_iterations,
@@ -300,9 +300,10 @@ def main(args):
     # Prepare testing data to step through in batches.
     test_data = data_stepper(
         np.load(args.test_data_file), np.load(args.test_label_file), 500)
-    test_errors = [np.equal(pred_fx(x_m).argmax(axis=1),
-                            y_m) for x_m, y_m in test_data]
-    print "Test Error: %0.4f" % (100*(1 - np.concatenate(test_errors).mean()))
+    correct_predictions = [np.equal(prediction_fx(x_m).argmax(axis=1),
+                                    y_m) for x_m, y_m in test_data]
+    test_error = 1.0 - np.concatenate(correct_predictions).mean()
+    print "Test Error: %0.4f" % (100*test_error)
 
 
 if __name__ == '__main__':
