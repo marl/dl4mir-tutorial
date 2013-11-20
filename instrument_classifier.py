@@ -266,7 +266,21 @@ def train_network(objective_fx, shuffler, learning_rate, num_iterations,
 
 
 def main(args):
-    """
+    """Main routine for training a deep network.
+
+    After training a deep network some number of iterations, the error over the
+    last batch update is reported and the total error over the holdout set is
+    computed.
+
+    As a point of reference, sklearn's SVC with a linear kernel achieves train
+    and test error of approximately 13%/20%, respectively. Here, with 50k
+    iterations and a learning rate of 0.025, the deep net achieves train and
+    test error of 2%/6.2%, respectively.
+
+    Parameters
+    ----------
+    args : ArgumentParser
+        Initialized argument object.
     """
     obj_fx, pred_fx, params = build_network()
     shuffler, stats = prepare_training_data(
