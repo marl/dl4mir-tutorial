@@ -246,23 +246,23 @@ def train_network(objective_fx, shuffler, learning_rate, num_iterations,
 
     Returns
     -------
-    train_loss : np.ndarray
+    training_error : np.ndarray
         Vector of training loss values over iterations.
     """
-    loss_values = np.zeros(num_iterations)
+    training_error = np.zeros(num_iterations)
     n_iter = 0
     try:
         while n_iter < num_iterations:
             x_m, y_m = shuffler.next()
-            loss_values[n_iter] = objective_fx(x_m, y_m, learning_rate)
+            training_error[n_iter] = objective_fx(x_m, y_m, learning_rate)
             if (n_iter % print_frequency) == 0:
-                print "[%s]\t iter: %07d \ttrain loss: %0.4f" % \
-                    (time.asctime(), n_iter, loss_values[n_iter])
+                print "[%s]\t Iter: %07d \tTraining Error: %0.2f" % \
+                    (time.asctime(), n_iter, training_error[n_iter])
             n_iter += 1
     except KeyboardInterrupt:
         print "Stopping Early."
 
-    return loss_values[:n_iter]
+    return training_error[:n_iter]
 
 
 def main(args):
@@ -290,13 +290,13 @@ def main(args):
     for name in ['mu', 'sigma']:
         params[name].set_value(stats[name])
 
-    errors = train_network(objective_fx,
-                           shuffler,
-                           args.learning_rate,
-                           args.max_iterations,
-                           args.print_frequency)
+    training_error = train_network(objective_fx,
+                                   shuffler,
+                                   args.learning_rate,
+                                   args.max_iterations,
+                                   args.print_frequency)
 
-    print "Final Training Error: %0.4f" % errors[-1]
+    print "Final Training Error: %0.4f" % training_error[-1]
     # Prepare testing data to step through in batches.
     test_data = data_stepper(
         np.load(args.test_data_file), np.load(args.test_label_file), 500)
