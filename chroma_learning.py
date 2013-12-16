@@ -4,11 +4,10 @@ from DFT Magnitude Coefficients.
 Contact: <ejhumphrey@nyu.edu>
 Homepage: http://marl.smusic.nyu.edu
 
-This script will train a "deep" network to produce chroma. You need
-a few things from the MARL website for it to run.
-  1. Data
-  2. Labels
-  3. A map from chord strings to integers
+This script will train a "deep" network to produce chroma. We provide a
+dataset and chord mapping, which you can find here:
+
+    http://files.nyu.edu/ejh333/public/chord_dataset.tgz
 
 Training will run for a predefined number of iterations, at which point the
 parameters of the network will be saved to the specified pickle file. This
@@ -309,20 +308,20 @@ def train_network(objective_fx, shuffler, learning_rate, num_iterations,
     train_loss : np.ndarray
         Vector of training loss values over iterations.
     """
-    loss_values = np.zeros(num_iterations)
+    train_loss = np.zeros(num_iterations)
     n_iter = 0
     try:
         while n_iter < num_iterations:
             x_m, y_m = shuffler.next()
-            loss_values[n_iter] = objective_fx(x_m, y_m, learning_rate)
+            train_loss[n_iter] = objective_fx(x_m, y_m, learning_rate)
             if (n_iter % print_frequency) == 0:
                 print "[%s]\t iter: %07d \ttrain loss: %0.4f" % \
-                    (time.asctime(), n_iter, loss_values[n_iter])
+                    (time.asctime(), n_iter, train_loss[n_iter])
             n_iter += 1
     except KeyboardInterrupt:
         print "Stopping Early."
 
-    return loss_values[:n_iter]
+    return train_loss[:n_iter]
 
 
 def save_parameters(params, output_file):
@@ -352,7 +351,7 @@ def main(args):
     args : ArgumentParser
         Initialized argument object.
     """
-    obj_fx, params = build_network()
+    objective_fx, params = build_network()
     label_map = load_label_map(args.label_map)
     shuffler, stats = prepare_training_data(
         args.train_file, args.label_file, label_map, args.batch_size)
@@ -361,7 +360,7 @@ def main(args):
     for name in ['mu', 'sigma']:
         params[name].set_value(stats[name])
 
-    loss = train_network(obj_fx,
+    loss = train_network(objective_fx,
                          shuffler,
                          args.learning_rate,
                          args.max_iterations,
