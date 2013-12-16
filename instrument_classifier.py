@@ -3,14 +3,13 @@
 Contact: <ejhumphrey@nyu.edu>
 
 This script will train a "deep" network to classify monophonic instrument
-feature vectors. You will need a few things from the MARL website for it to run.
-  1. Data
-  2. Labels
+feature vectors. For this script to execute, you will need to download the
+provided dataset:
 
-These will eventually be available at http://marl.smusic.nyu.edu
+    https://files.nyu.edu/ejh333/public/uiowa_instrument_dataset.tgz
 
 Sample call:
-$ python instrument_demo.py \
+$ python instrument_classifier.py \
 instrument_dataset/uiowa_train_data.npy \
 instrument_dataset/uiowa_train_labels.npy \
 instrument_dataset/uiowa_test_data.npy \
@@ -21,7 +20,6 @@ instrument_dataset/uiowa_test_labels.npy \
 """
 
 import argparse
-import json
 import numpy as np
 import theano
 import theano.tensor as T
