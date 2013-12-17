@@ -21,13 +21,13 @@ import numpy as np
 import theano
 import theano.tensor as T
 from scipy.io import wavfile
+from matplotlib.pyplot import figure, show
+
+SAMPLERATE = 11025
+FRAMESIZE = 8192
 
 
-SAMPLERATE = 44100
-FRAMESIZE = 2048
-
-
-def signal_buffer(input_file, hopsize=441, batchsize=500):
+def signal_buffer(input_file, hopsize=1024, batchsize=500):
     """Generator to step through an input wavefile.
 
     Note: The framesize is fixed due to preselected parameters.
@@ -45,7 +45,7 @@ def signal_buffer(input_file, hopsize=441, batchsize=500):
     Yields
     -------
     batch : np.ndarray
-        Matrix of sample data. The length of the final batch will almost
+        Array of DFT Spectra. The length of the final batch will almost
         certainly be smaller than the requested batchsize.
     """
     samplerate, waveform = wavfile.read(input_file)
@@ -56,19 +56,20 @@ def signal_buffer(input_file, hopsize=441, batchsize=500):
     read_ptr = 0
     frame = np.zeros([FRAMESIZE])
     batch = list()
+    win = np.hanning(FRAMESIZE)[np.newaxis, :]
     while read_ptr < num_samples:
         idx0 = max([read_ptr - FRAMESIZE/2, 0])
         idx1 = min([read_ptr + FRAMESIZE/2, num_samples])
-        x_m = waveform[idx0:idx1, 0]
+        x_m = waveform[idx0:idx1]
         fidx = max([FRAMESIZE/2 - read_ptr, 0])
         frame[fidx:fidx+len(x_m)] = x_m
         batch.append(frame.copy())
         if len(batch) >= batchsize:
-            yield np.asarray(batch)
+            yield np.abs(np.fft.rfft(win * np.asarray(batch)))
             batch = list()
         read_ptr += hopsize
         frame[:] = 0
-    yield np.asarray(batch)
+    yield np.abs(np.fft.rfft(win * np.asarray(batch)))
 
 
 def hwr(x_input):
@@ -85,6 +86,26 @@ def hwr(x_input):
         Result of the function.
     """
     return 0.5 * (T.abs_(x_input) + x_input)
+
+
+def lp_norm(x, p):
+    """Normalize the rows of x to unit norm in Lp-space.
+
+    Parameters
+    ----------
+    x : np.ndarray
+        Input matrix to normalize.
+    p : scalar
+        Shape of the metric space, e.g. 2=Euclidean.
+
+    Returns
+    -------
+    z : np.ndarray
+        Normalized representation.
+    """
+    s = np.power(np.power(np.abs(x), p).sum(axis=1), 1.0/p)
+    s[s == 0] = 1.0
+    return x / s[:, np.newaxis]
 
 
 def build_network(param_values):
@@ -152,25 +173,51 @@ def load_parameters(parameter_file):
     return cPickle.load(open(parameter_file))
 
 
-def transformer(sigbuff, chroma_fx):
-    """Main routine for iterating over a wavefile.
+def audio_to_chroma(input_wavfile, hopsize, fx):
+    """Method for turning a wavefile into chroma features.
 
     Parameters
     ----------
-    sigbuff : generator
-        Initialized signal buffer.
-    chroma_fx : compiled theano function
+    input_wavfile : str
+        Path to a wavefile.
+    hopsize : int
+        Number of samples between frames.
+    fx : function
         Function that consumes 2D matrices of DFT coefficients and outputs
-        chroma.
+        chroma features.
 
     Returns
     -------
-    chroma : np.ndarray
+    features : np.ndarray
         Matrix of time-aligned chroma vectors, shaped (num_frames, 12).
     """
-    win = np.hanning(FRAMESIZE)[np.newaxis, :]
-    z_output = [chroma_fx(np.abs(np.fft.rfft(win * x_m))) for x_m in sigbuff]
-    return np.concatenate(z_output, axis=0)
+    sigbuff = signal_buffer(input_wavfile, hopsize=hopsize)
+    features = np.concatenate([fx(batch) for batch in sigbuff], axis=0)
+    return lp_norm(features, 1.0)
+
+
+def dft_pcp(batch):
+    """Baseline method for transforming DFT spectra into a pitch class profile.
+    Derived from Fujishima (1999).
+
+    Parameters
+    ----------
+    batch : np.ndarray
+        Array of magnitude DFT spectra.
+
+    Returns
+    -------
+    features : np.ndarray
+        Pitch-class profile features for the batch.
+    """
+    freqs = np.arange(FRAMESIZE/2 + 1, dtype=float)*SAMPLERATE/FRAMESIZE
+    pitches = np.round(12*np.log2(freqs/440.0) + 69).astype(int)
+    pitch_map = np.zeros([len(batch), pitches.max() + 1])
+    start_idx = (pitches >= 24).argmax()
+    for freq_k, bin_p in enumerate(pitches[start_idx:], start_idx):
+        pitch_map[:, bin_p] += batch[:, freq_k]**2.0
+
+    return np.array([pitch_map[:, 24+n::12].mean(axis=1) for n in range(12)]).T
 
 
 def main(args):
@@ -182,10 +229,20 @@ def main(args):
         Initialized argument object.
     """
     param_values = load_parameters(args.parameter_file)
-    chroma_fx = build_network(param_values)
-    sigbuff = signal_buffer(args.input_wavfile, hopsize=args.hopsize)
-    chroma = transformer(sigbuff, chroma_fx)
-    np.save(args.output_file, chroma)
+    learned_fx = build_network(param_values)
+    learned_features = audio_to_chroma(
+        args.input_wavfile, args.hopsize, learned_fx)
+    pcp_features = audio_to_chroma(
+        args.input_wavfile, args.hopsize, dft_pcp)
+
+    fig = figure()
+    ax1 = fig.add_subplot(2, 1, 1)
+    ax2 = fig.add_subplot(2, 1, 2)
+    ax1.imshow(pcp_features.T, interpolation='nearest', aspect='auto')
+    ax2.imshow(learned_features.T, interpolation='nearest', aspect='auto')
+    ax1.set_ylabel("PCP")
+    ax2.set_ylabel("Learned")
+    show()
 
 
 if __name__ == '__main__':
@@ -194,13 +251,13 @@ if __name__ == '__main__':
     parser.add_argument("input_wavfile",
                         metavar="input_wavfile", type=str,
                         help="Input file to transform.")
-    parser.add_argument("output_file",
-                        metavar="output_file", type=str,
-                        help="File for saving chroma representation.")
+    # parser.add_argument("output_file",
+    #                     metavar="output_file", type=str,
+    #                     help="File for saving chroma representation.")
     parser.add_argument("parameter_file",
                         metavar="parameter_file", type=str,
                         help="Parameter file for the chroma transformation.")
     parser.add_argument("--hopsize",
-                        metavar="hopsize", type=int,
+                        metavar="hopsize", type=int, default=1024,
                         help="Hopsize for stepping through the waveform.")
     main(parser.parse_args())
