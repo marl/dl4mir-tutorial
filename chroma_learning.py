@@ -10,8 +10,8 @@ dataset and chord mapping, which you can find here:
     http://files.nyu.edu/ejh333/public/chord_dataset.tgz
 
 Training will run for a predefined number of iterations, at which point the
-parameters of the network will be saved to the specified pickle file. This
-behavior can be realized at any time with the standard keyboard interrupt at
+parameters of the network will be saved to the specified pickle file. You can
+halt training at any time with the standard keyboard interrupt at
 the command line (ctrl+C).
 
 Sample call:
@@ -219,9 +219,9 @@ def build_network():
     x_input = T.matrix('input')
 
     # Define layer shapes -- (n_in, n_out)
-    l0_dim = (1025, 256)
-    l1_dim = (256, 64)
-    l2_dim = (64, 12)
+    l0_dim = (4097, 512)
+    l1_dim = (512, 128)
+    l2_dim = (128, 12)
 
     # Build-in the standardization methods.
     mu_obs = theano.shared(np.zeros(l0_dim[:1]), name='mu')
