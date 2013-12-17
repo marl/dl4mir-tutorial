@@ -1,17 +1,19 @@
-"""Transform a wavfile to chroma features and optionally save the output.
+"""Transform a wavfile to chroma features via DFT-folding and a deep network.
 
 Contact: <ejhumphrey@nyu.edu>
 Homepage: http://marl.smusic.nyu.edu
 
-This mainfile demonstrates how to apply a trained network to never-before seen
-wavefiles. Note that this is unlikely to be the most efficient strategy to
-process a large collection of content, but it gets the point across.
+This mainfile demonstrates how to apply a trained network to new data to
+produce a chroma representation. This output is also compared to directly
+folding the DFT magnitude spectra into a pitch-class profile (PCP).
+
+Note: This script requires the input wavefile to have a samplerate of 11025Hz,
+and will fail quite loudly in the event that the it does not.
 
 Sample call:
 $ python chroma_transform.py \
 epiano-chords.wav \
-epiano-chroma.npy \
-sample_params.pk \
+sample_params_20k.pk \
 --hopsize=1024
 """
 
@@ -221,7 +223,9 @@ def dft_pcp(batch):
 
 
 def main(args):
-    """Main routine for transforming a wavefile into chroma.
+    """Main routine for transforming a wavefile into chroma by both the known,
+    DFT-folding method and a learned transformation. The two representations
+    are shown using matplotlib.
 
     Parameters
     ----------
@@ -251,9 +255,6 @@ if __name__ == '__main__':
     parser.add_argument("input_wavfile",
                         metavar="input_wavfile", type=str,
                         help="Input file to transform.")
-    # parser.add_argument("output_file",
-    #                     metavar="output_file", type=str,
-    #                     help="File for saving chroma representation.")
     parser.add_argument("parameter_file",
                         metavar="parameter_file", type=str,
                         help="Parameter file for the chroma transformation.")
