@@ -16,73 +16,35 @@ the command line (ctrl+C).
 
 Sample call:
 $ python chroma_learning.py \
-chord_dft1025_train_data.npy \
-chord_dft1025_train_labels.npy \
+chord_dft4097_train_data.npy \
+chord_dft4097_train_labels.npy \
 v157_chord_map.txt \
 sample_params.pk \
---max_iterations 20000 \
---batch_size=100 \
---print_frequency 500 \
---learning_rate 0.02
+--max_iterations 10000 \
+--batch_size=500 \
+--print_frequency=250 \
+--learning_rate=0.001
 
 Then you should see something like the following:
-[Thu Nov 14 14:36:09 2013]   iter: 0000000  train loss: 3.0164
-[Thu Nov 14 14:36:20 2013]   iter: 0000500  train loss: 2.3858
-[Thu Nov 14 14:36:31 2013]   iter: 0001000  train loss: 2.3040
-[Thu Nov 14 14:36:42 2013]   iter: 0001500  train loss: 1.7913
-[Thu Nov 14 14:36:52 2013]   iter: 0002000  train loss: 1.8429
+[Wed Dec 18 15:37:19 2013]   iter: 0000000  train loss: 0.2351
+[Wed Dec 18 15:37:22 2013]   iter: 0000250  train loss: 0.1138
+[Wed Dec 18 15:37:24 2013]   iter: 0000500  train loss: 0.1109
+[Wed Dec 18 15:37:27 2013]   iter: 0000750  train loss: 0.1079
 ...
+
+On a 2009 Mac Pro with plenty of memory / cores, 10k iterations completes in
+under two minutes; the loss converges to a minimum almost immediately though.
 """
 
 import argparse
 import cPickle
-import json
 import numpy as np
 import theano
 import theano.tensor as T
 import time
 
 from collections import OrderedDict
-
-QUALITIES = ['maj', 'min', 'maj7', 'min7', '7', 'maj6', 'min6',
-             'dim', 'aug', 'sus4', 'sus2', 'hdim7', 'dim7']
-
-QUALITY_MAP = {'maj':   '100010010000',
-               'min':   '100100010000',
-               'maj7':  '100010010001',
-               'min7':  '100100010010',
-               '7':     '100010010010',
-               'maj6':  '100010010100',
-               'min6':  '100100010100',
-               'dim':   '100100100000',
-               'aug':   '100010001000',
-               'sus4':  '100001010000',
-               'sus2':  '101000010000',
-               'hdim7': '100100100010',
-               'dim7':  '100100100100', }
-
-SAMPLERATE = 11025
-FRAMESIZE = 8192
-
-
-def lp_norm(x, p):
-    """Normalize the rows of x to unit norm in Lp-space.
-
-    Parameters
-    ----------
-    x : np.ndarray
-        Input matrix to normalize.
-    p : scalar
-        Shape of the metric space, e.g. 2=Euclidean.
-
-    Returns
-    -------
-    z : np.ndarray
-        Normalized representation.
-    """
-    s = np.power(np.power(np.abs(x), p).sum(axis=1), 1.0/p)
-    s[s == 0] = 1.0
-    return x / s[:, np.newaxis]
+from dltutorial import chroma_tools as CT
 
 
 def generate_chroma_templates(num_qualities):
@@ -106,38 +68,15 @@ def generate_chroma_templates(num_qualities):
     position_idx = np.arange(12)
     # For all qualities ...
     for qual_idx in range(num_qualities):
-        quality = QUALITIES[qual_idx]
+        quality = CT.QUALITIES[qual_idx]
         # Translate the string into a bit-vector.
-        qual_array = np.array([int(v) for v in QUALITY_MAP[quality]])
+        qual_array = np.array([int(v) for v in CT.QUALITY_MAP[quality]])
         for root_idx in range(12):
             # Rotate for all roots, C, C#, D ...
             templates.append(qual_array[(position_idx - root_idx) % 12])
 
     templates.append(np.ones(12))
-    templates = np.array(templates)
-    return lp_norm(templates, 1.0)
-
-
-def load_label_map(filepath):
-    """Load a human-readable (JSON) label map into memory.
-
-    Note: JSON refuses to store integer zeros, so they are written as strings
-    and must be interpreted as integers on load.
-
-    Parameters
-    ----------
-    filepath : str
-        Path to a JSON-ed text file mapping string labels to integers.
-
-    Returns
-    -------
-    label_map : dict
-        Mapping of string labels to integers
-    """
-    label_map = OrderedDict()
-    for label, label_enum in json.load(open(filepath)).iteritems():
-        label_map[label] = int(label_enum)
-    return label_map
+    return CT.lp_norm(np.array(templates), 1.0)
 
 
 def data_shuffler(data, labels, batch_size=100):
@@ -172,19 +111,6 @@ def data_shuffler(data, labels, batch_size=100):
             read_ptr += 1
         yield np.array(x_m), np.array(y_m)
 
-def cqt_pool(data):
-    """write me, fool.
-    """
-    freqs = np.arange(FRAMESIZE/2 + 1, dtype=float)*SAMPLERATE/FRAMESIZE
-    pitches = np.round(12*np.log2(freqs/440.0) + 69).astype(int)
-    start_pitch = 24
-    num_pitches = pitches.max() + 1 - start_pitch
-    pitch_map = np.zeros([len(data), num_pitches])
-    for bin_p in range(num_pitches):
-        val = np.power(data[:, pitches == (bin_p + start_pitch)], 2.0).sum(axis=1) ** 0.5
-        pitch_map[:, bin_p] += val
-    return pitch_map
-
 
 def prepare_training_data(train_file, label_file, label_map, batch_size=100):
     """Create a data generator from input data and label files.
@@ -213,7 +139,7 @@ def prepare_training_data(train_file, label_file, label_map, batch_size=100):
     valid_idx = y_true > 0
     # Drop all labels that don't exist in the label map, i.e. negative.
     data, y_true = data[valid_idx], y_true[valid_idx]
-    data = cqt_pool(data)
+    data = CT.cqt_pool(data)
     # Compute standardization statistics.
     stats = {'mu': data.mean(axis=0), 'sigma': data.std(axis=0)}
 
@@ -222,23 +148,7 @@ def prepare_training_data(train_file, label_file, label_map, batch_size=100):
     return data_shuffler(data, templates[y_true], batch_size=batch_size), stats
 
 
-def hwr(x_input):
-    """Theano functiom to compute half-wave rectification, i.e. max(x, 0).
-
-    Parameters
-    ----------
-    x : theano symbolic type
-        Object to half-wave rectify.
-
-    Returns
-    -------
-    z : theano symbolic type
-        Result of the function.
-    """
-    return 0.5 * (T.abs_(x_input) + x_input)
-
-
-def build_network():
+def build_chroma_transform():
     """Build a chroma transform network for training.
 
     Returns
@@ -374,8 +284,8 @@ def main(args):
     args : ArgumentParser
         Initialized argument object.
     """
-    objective_fx, params = build_network()
-    label_map = load_label_map(args.label_map)
+    objective_fx, params = build_chroma_transform()
+    label_map = CT.load_label_map(args.label_map)
     shuffler, stats = prepare_training_data(
         args.train_file, args.label_file, label_map, args.batch_size)
 

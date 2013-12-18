@@ -25,11 +25,7 @@ import theano.tensor as T
 from scipy.io import wavfile
 from matplotlib.pyplot import figure, show
 
-SAMPLERATE = 11025
-FRAMESIZE = 8192
-
-PITCH_CLASSES = ['C', 'C#', 'D', 'Eb', 'E', 'F',
-                 'F#', 'G', 'Ab', 'A', 'Bb', 'B']
+from dltutorial import chroma_tools as CT
 
 
 def signal_buffer(input_file, hopsize=1024, batchsize=500):
@@ -55,18 +51,18 @@ def signal_buffer(input_file, hopsize=1024, batchsize=500):
     """
     samplerate, waveform = wavfile.read(input_file)
     waveform = waveform.astype('float')*np.power(2.0, -15.0)
-    assert samplerate == SAMPLERATE, \
-        "Chroma transform only compatible with Fs==%d" % SAMPLERATE
+    assert samplerate == CT.SAMPLERATE, \
+        "Chroma transform only compatible with Fs==%d" % CT.SAMPLERATE
     num_samples = len(waveform)
     read_ptr = 0
-    frame = np.zeros([FRAMESIZE])
+    frame = np.zeros([CT.FRAMESIZE])
     batch = list()
-    win = np.hanning(FRAMESIZE)[np.newaxis, :]
+    win = np.hanning(CT.FRAMESIZE)[np.newaxis, :]
     while read_ptr < num_samples:
-        idx0 = max([read_ptr - FRAMESIZE/2, 0])
-        idx1 = min([read_ptr + FRAMESIZE/2, num_samples])
+        idx0 = max([read_ptr - CT.FRAMESIZE/2, 0])
+        idx1 = min([read_ptr + CT.FRAMESIZE/2, num_samples])
         x_m = waveform[idx0:idx1]
-        fidx = max([FRAMESIZE/2 - read_ptr, 0])
+        fidx = max([CT.FRAMESIZE/2 - read_ptr, 0])
         frame[fidx:fidx+len(x_m)] = x_m
         batch.append(frame.copy())
         if len(batch) >= batchsize:
@@ -77,44 +73,8 @@ def signal_buffer(input_file, hopsize=1024, batchsize=500):
     yield np.abs(np.fft.rfft(win * np.asarray(batch)))
 
 
-def hwr(x_input):
-    """Theano functiom to compute half-wave rectification, i.e. max(x, 0).
-
-    Parameters
-    ----------
-    x : theano symbolic type
-        Object to half-wave rectify.
-
-    Returns
-    -------
-    z : theano symbolic type
-        Result of the function.
-    """
-    return 0.5 * (T.abs_(x_input) + x_input)
-
-
-def lp_norm(x, p):
-    """Normalize the rows of x to unit norm in Lp-space.
-
-    Parameters
-    ----------
-    x : np.ndarray
-        Input matrix to normalize.
-    p : scalar
-        Shape of the metric space, e.g. 2=Euclidean.
-
-    Returns
-    -------
-    z : np.ndarray
-        Normalized representation.
-    """
-    s = np.power(np.power(np.abs(x), p).sum(axis=1), 1.0/p)
-    s[s == 0] = 1.0
-    return x / s[:, np.newaxis]
-
-
 def build_network(param_values):
-    """Build a chroma transform network for training.
+    """Build the one-layer chroma transform.
 
     Parameters
     ----------
@@ -191,22 +151,8 @@ def audio_to_chroma(input_wavfile, hopsize, fx, norm=2.0):
     sigbuff = signal_buffer(input_wavfile, hopsize=hopsize)
     features = np.concatenate([fx(batch) for batch in sigbuff], axis=0)
     if norm > 0:
-        features = lp_norm(features, norm)
+        features = CT.lp_norm(features, norm)
     return features
-
-
-def cqt_pool(data):
-    """write me, fool.
-    """
-    freqs = np.arange(FRAMESIZE/2 + 1, dtype=float)*SAMPLERATE/FRAMESIZE
-    pitches = np.round(12*np.log2(freqs/440.0) + 69).astype(int)
-    start_pitch = 24
-    num_pitches = pitches.max() + 1 - start_pitch
-    pitch_map = np.zeros([len(data), num_pitches])
-    for bin_p in range(num_pitches):
-        val = np.power(data[:, pitches == (bin_p + start_pitch)], 2.0).sum(axis=1) ** 0.5
-        pitch_map[:, bin_p] += val
-    return pitch_map
 
 
 def dft_pcp(batch):
@@ -223,7 +169,8 @@ def dft_pcp(batch):
     features : np.ndarray
         Pitch-class profile features for the batch.
     """
-    freqs = np.arange(FRAMESIZE/2 + 1, dtype=float)*SAMPLERATE/FRAMESIZE
+    freqs = np.arange(CT.FRAMESIZE/2 + 1,
+                      dtype=float)*CT.SAMPLERATE/CT.FRAMESIZE
     pitches = np.round(12*np.log2(freqs/440.0) + 69).astype(int)
     num_pitches = pitches.max() + 1
     pitch_map = np.zeros([len(batch), num_pitches])
@@ -232,6 +179,25 @@ def dft_pcp(batch):
         pitch_map[:, bin_p] += val
 
     return np.array([pitch_map[:, 24+n::12].mean(axis=1) for n in range(12)]).T
+
+
+def show_weights(param_file):
+    """Write me.
+    """
+    params = cPickle.load(open(param_file))
+    W = params['weights0']
+    fig = figure()
+    ax = fig.gca()
+    ax.imshow(np.flipud(W.T), interpolation='nearest', aspect='auto')
+    ax.set_yticks(range(12))
+    ax.set_yticklabels(CT.PITCH_CLASSES[::-1])
+    ax.set_ylabel("Pitch Class")
+    c_ticks = range(len(W))[::12]
+    ax.set_xticks(c_ticks)
+    ax.set_xticklabels(["C%d" % (n + 1) for n in range(len(c_ticks))])
+    ax.set_xlabel("Pitch")
+    ax.tick_params(labelsize=10)
+    show()
 
 
 def main(args):
@@ -248,24 +214,31 @@ def main(args):
     fx = build_network(param_values)
 
     def learned_fx(data):
-        return fx(cqt_pool(data))
+        return fx(CT.cqt_pool(data))
+
+    dft_features = audio_to_chroma(
+        args.input_wavfile, args.hopsize, dft_pcp, 1.0)
 
     learned_features = audio_to_chroma(
-        args.input_wavfile, args.hopsize, learned_fx, 0.0)
-    pcp_features = audio_to_chroma(
-        args.input_wavfile, args.hopsize, dft_pcp, 2.0)
+        args.input_wavfile, args.hopsize, learned_fx, 0)
 
     fig = figure()
     ax1 = fig.add_subplot(2, 1, 1)
-    ax2 = fig.add_subplot(2, 1, 2)
-    ax1.imshow(np.flipud(pcp_features.T), interpolation='nearest', aspect='auto')
-    ax2.imshow(np.flipud(learned_features.T), interpolation='nearest', aspect='auto')
-    ax1.set_ylabel("PCP")
+    ax1.imshow(
+        np.flipud(dft_features.T), interpolation='nearest', aspect='auto')
+    ax1.set_ylabel("DFT Chroma")
     ax1.set_yticks(range(12))
-    ax1.set_yticklabels(PITCH_CLASSES[::-1])
-    ax2.set_ylabel("Learned")
+    ax1.set_yticklabels(CT.PITCH_CLASSES[::-1])
+    ax1.tick_params(labelsize=10)
+
+    ax2 = fig.add_subplot(2, 1, 2)
+    ax2.imshow(
+        np.flipud(learned_features.T), interpolation='nearest', aspect='auto')
+    ax2.set_ylabel("Learned Chroma")
     ax2.set_yticks(range(12))
-    ax2.set_yticklabels(PITCH_CLASSES[::-1])
+    ax2.set_yticklabels(CT.PITCH_CLASSES[::-1])
+    ax2.tick_params(labelsize=10)
+    ax2.set_xlabel("Frames")
     show()
 
 
