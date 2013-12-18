@@ -1,4 +1,4 @@
-"""Transform a wavfile to chroma features via DFT-folding and a deep network.
+"""Transform a wavfile to chroma via DFT-folding and a learned transform.
 
 Contact: <ejhumphrey@nyu.edu>
 Homepage: http://marl.smusic.nyu.edu
@@ -12,8 +12,8 @@ and will fail quite loudly in the event that the it does not.
 
 Sample call:
 $ python chroma_transform.py \
-epiano-chords.wav \
-sample_params_20k.pk \
+SMC_281.wav \
+sample_params.pk \
 --hopsize=1024
 """
 
@@ -128,7 +128,7 @@ def load_parameters(parameter_file):
     return cPickle.load(open(parameter_file))
 
 
-def audio_to_chroma(input_wavfile, hopsize, fx, norm=2.0):
+def audio_to_chroma(input_wavfile, hopsize, fx, norm=0):
     """Method for turning a wavefile into chroma features.
 
     Parameters
@@ -140,7 +140,7 @@ def audio_to_chroma(input_wavfile, hopsize, fx, norm=2.0):
     fx : function
         Function that consumes 2D matrices of DFT coefficients and outputs
         chroma features.
-    norm : scalar
+    norm : scalar, default=0
         Lp norm to apply to the features; skipped if not > 0.
 
     Returns
@@ -149,40 +149,37 @@ def audio_to_chroma(input_wavfile, hopsize, fx, norm=2.0):
         Matrix of time-aligned chroma vectors, shaped (num_frames, 12).
     """
     sigbuff = signal_buffer(input_wavfile, hopsize=hopsize)
-    features = np.concatenate([fx(batch) for batch in sigbuff], axis=0)
+    pitch_spec = np.concatenate([CT.cqt_pool(batch)
+                                 for batch in sigbuff], axis=0)
+    features = fx(pitch_spec)
     if norm > 0:
         features = CT.lp_norm(features, norm)
     return features
 
 
-def dft_pcp(batch):
-    """Baseline method for transforming DFT spectra into a pitch class profile.
-    Derived from Fujishima (1999).
+def mean_pitch_class(pitch_spec):
+    """Compute average pitch class energy assuming octave equivalence.
 
     Parameters
     ----------
-    batch : np.ndarray
-        Array of magnitude DFT spectra.
+    pitch_spec : np.ndarray
+        Array of pitch spectra.
 
     Returns
     -------
-    features : np.ndarray
-        Pitch-class profile features for the batch.
+    chroma : np.ndarray
+        Pitch-class features (chroma).
     """
-    freqs = np.arange(CT.FRAMESIZE/2 + 1,
-                      dtype=float)*CT.SAMPLERATE/CT.FRAMESIZE
-    pitches = np.round(12*np.log2(freqs/440.0) + 69).astype(int)
-    num_pitches = pitches.max() + 1
-    pitch_map = np.zeros([len(batch), num_pitches])
-    for bin_p in range(24, num_pitches):
-        val = np.power(batch[:, pitches == bin_p], 2.0).sum(axis=1) ** 0.5
-        pitch_map[:, bin_p] += val
-
-    return np.array([pitch_map[:, 24+n::12].mean(axis=1) for n in range(12)]).T
+    return np.array([pitch_spec[:, n::12].mean(axis=1) for n in range(12)]).T
 
 
 def show_weights(param_file):
-    """Write me.
+    """Plot the weights of the trained model.
+
+    Parameters
+    ----------
+    param_file : str
+        Path to the pickled file of network parameters.
     """
     params = cPickle.load(open(param_file))
     W = params['weights0']
@@ -211,16 +208,13 @@ def main(args):
         Initialized argument object.
     """
     param_values = load_parameters(args.parameter_file)
-    fx = build_network(param_values)
-
-    def learned_fx(data):
-        return fx(CT.cqt_pool(data))
+    learned_fx = build_network(param_values)
 
     dft_features = audio_to_chroma(
-        args.input_wavfile, args.hopsize, dft_pcp, 1.0)
+        args.input_wavfile, args.hopsize, mean_pitch_class, norm=1.0)
 
     learned_features = audio_to_chroma(
-        args.input_wavfile, args.hopsize, learned_fx, 0)
+        args.input_wavfile, args.hopsize, learned_fx)
 
     fig = figure()
     ax1 = fig.add_subplot(2, 1, 1)
