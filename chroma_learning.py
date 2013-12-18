@@ -61,6 +61,29 @@ QUALITY_MAP = {'maj':   '100010010000',
                'hdim7': '100100100010',
                'dim7':  '100100100100', }
 
+SAMPLERATE = 11025
+FRAMESIZE = 8192
+
+
+def lp_norm(x, p):
+    """Normalize the rows of x to unit norm in Lp-space.
+
+    Parameters
+    ----------
+    x : np.ndarray
+        Input matrix to normalize.
+    p : scalar
+        Shape of the metric space, e.g. 2=Euclidean.
+
+    Returns
+    -------
+    z : np.ndarray
+        Normalized representation.
+    """
+    s = np.power(np.power(np.abs(x), p).sum(axis=1), 1.0/p)
+    s[s == 0] = 1.0
+    return x / s[:, np.newaxis]
+
 
 def generate_chroma_templates(num_qualities):
     """Generate chroma templates for some number of chord qualities.
@@ -90,8 +113,9 @@ def generate_chroma_templates(num_qualities):
             # Rotate for all roots, C, C#, D ...
             templates.append(qual_array[(position_idx - root_idx) % 12])
 
-    templates.append(np.zeros(12))
-    return np.array(templates)
+    templates.append(np.ones(12))
+    templates = np.array(templates)
+    return lp_norm(templates, 1.0)
 
 
 def load_label_map(filepath):
@@ -148,6 +172,19 @@ def data_shuffler(data, labels, batch_size=100):
             read_ptr += 1
         yield np.array(x_m), np.array(y_m)
 
+def cqt_pool(data):
+    """write me, fool.
+    """
+    freqs = np.arange(FRAMESIZE/2 + 1, dtype=float)*SAMPLERATE/FRAMESIZE
+    pitches = np.round(12*np.log2(freqs/440.0) + 69).astype(int)
+    start_pitch = 24
+    num_pitches = pitches.max() + 1 - start_pitch
+    pitch_map = np.zeros([len(data), num_pitches])
+    for bin_p in range(num_pitches):
+        val = np.power(data[:, pitches == (bin_p + start_pitch)], 2.0).sum(axis=1) ** 0.5
+        pitch_map[:, bin_p] += val
+    return pitch_map
+
 
 def prepare_training_data(train_file, label_file, label_map, batch_size=100):
     """Create a data generator from input data and label files.
@@ -176,7 +213,7 @@ def prepare_training_data(train_file, label_file, label_map, batch_size=100):
     valid_idx = y_true > 0
     # Drop all labels that don't exist in the label map, i.e. negative.
     data, y_true = data[valid_idx], y_true[valid_idx]
-
+    data = cqt_pool(data)
     # Compute standardization statistics.
     stats = {'mu': data.mean(axis=0), 'sigma': data.std(axis=0)}
 
@@ -219,9 +256,7 @@ def build_network():
     x_input = T.matrix('input')
 
     # Define layer shapes -- (n_in, n_out)
-    l0_dim = (4097, 512)
-    l1_dim = (512, 128)
-    l2_dim = (128, 12)
+    l0_dim = (90, 12)
 
     # Build-in the standardization methods.
     mu_obs = theano.shared(np.zeros(l0_dim[:1]), name='mu')
@@ -230,22 +265,10 @@ def build_network():
     x_input /= sigma_obs.dimshuffle('x', 0)
 
     # Layer 0
-    weights0 = theano.shared(np.random.normal(scale=0.01, size=l0_dim),
+    weights0 = theano.shared(np.random.normal(scale=0.001, size=l0_dim),
                              name='weights0')
     bias0 = theano.shared(np.zeros(l0_dim[1]), name='bias0')
-    z_out0 = hwr(T.dot(x_input, weights0) + bias0)
-
-    # Layer 1
-    weights1 = theano.shared(np.random.normal(scale=0.01, size=l1_dim),
-                             name='weights1')
-    bias1 = theano.shared(np.zeros(l1_dim[1]), name='bias1')
-    z_out1 = hwr(T.dot(z_out0, weights1) + bias1)
-
-    # Layer 2
-    weights2 = theano.shared(np.random.normal(scale=0.01, size=l2_dim),
-                             name='weights2')
-    bias2 = theano.shared(np.zeros(l2_dim[1]), name='bias2')
-    z_output = hwr(T.dot(z_out1, weights2) + bias2)
+    z_output = T.nnet.softmax(T.tanh(T.dot(x_input, weights0) + bias0))
 
     # ----------------------------------------------------
     # Step 2. Define a loss function
@@ -260,7 +283,7 @@ def build_network():
     eta = T.scalar(name="learning_rate")
     updates = OrderedDict()
     network_params = OrderedDict()
-    for param in [weights0, bias0, weights1, bias1, weights2, bias2]:
+    for param in [weights0, bias0]:
         # Save each parameter for returning later.
         network_params[param.name] = param
         # Compute the gradient with respect to each parameter.

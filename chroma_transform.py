@@ -28,6 +28,9 @@ from matplotlib.pyplot import figure, show
 SAMPLERATE = 11025
 FRAMESIZE = 8192
 
+PITCH_CLASSES = ['C', 'C#', 'D', 'Eb', 'E', 'F',
+                 'F#', 'G', 'Ab', 'A', 'Bb', 'B']
+
 
 def signal_buffer(input_file, hopsize=1024, batchsize=500):
     """Generator to step through an input wavefile.
@@ -138,17 +141,7 @@ def build_network(param_values):
     # Layer 0
     weights0 = theano.shared(param_values['weights0'], name='weights0')
     bias0 = theano.shared(param_values['bias0'], name='bias0')
-    z_out0 = hwr(T.dot(x_input, weights0) + bias0)
-
-    # Layer 1
-    weights1 = theano.shared(param_values['weights1'], name='weights1')
-    bias1 = theano.shared(param_values['bias1'], name='bias1')
-    z_out1 = hwr(T.dot(z_out0, weights1) + bias1)
-
-    # Layer 2
-    weights2 = theano.shared(param_values['weights2'], name='weights2')
-    bias2 = theano.shared(param_values['bias2'], name='bias2')
-    z_output = hwr(T.dot(z_out1, weights2) + bias2)
+    z_output = T.nnet.softmax(T.tanh(T.dot(x_input, weights0) + bias0))
 
     # ----------------------------------------------------
     # Step 2. Compile a wicked fast theano function!
@@ -175,7 +168,7 @@ def load_parameters(parameter_file):
     return cPickle.load(open(parameter_file))
 
 
-def audio_to_chroma(input_wavfile, hopsize, fx):
+def audio_to_chroma(input_wavfile, hopsize, fx, norm=2.0):
     """Method for turning a wavefile into chroma features.
 
     Parameters
@@ -187,6 +180,8 @@ def audio_to_chroma(input_wavfile, hopsize, fx):
     fx : function
         Function that consumes 2D matrices of DFT coefficients and outputs
         chroma features.
+    norm : scalar
+        Lp norm to apply to the features; skipped if not > 0.
 
     Returns
     -------
@@ -195,7 +190,23 @@ def audio_to_chroma(input_wavfile, hopsize, fx):
     """
     sigbuff = signal_buffer(input_wavfile, hopsize=hopsize)
     features = np.concatenate([fx(batch) for batch in sigbuff], axis=0)
-    return lp_norm(features, 1.0)
+    if norm > 0:
+        features = lp_norm(features, norm)
+    return features
+
+
+def cqt_pool(data):
+    """write me, fool.
+    """
+    freqs = np.arange(FRAMESIZE/2 + 1, dtype=float)*SAMPLERATE/FRAMESIZE
+    pitches = np.round(12*np.log2(freqs/440.0) + 69).astype(int)
+    start_pitch = 24
+    num_pitches = pitches.max() + 1 - start_pitch
+    pitch_map = np.zeros([len(data), num_pitches])
+    for bin_p in range(num_pitches):
+        val = np.power(data[:, pitches == (bin_p + start_pitch)], 2.0).sum(axis=1) ** 0.5
+        pitch_map[:, bin_p] += val
+    return pitch_map
 
 
 def dft_pcp(batch):
@@ -214,10 +225,11 @@ def dft_pcp(batch):
     """
     freqs = np.arange(FRAMESIZE/2 + 1, dtype=float)*SAMPLERATE/FRAMESIZE
     pitches = np.round(12*np.log2(freqs/440.0) + 69).astype(int)
-    pitch_map = np.zeros([len(batch), pitches.max() + 1])
-    start_idx = (pitches >= 24).argmax()
-    for freq_k, bin_p in enumerate(pitches[start_idx:], start_idx):
-        pitch_map[:, bin_p] += batch[:, freq_k]**2.0
+    num_pitches = pitches.max() + 1
+    pitch_map = np.zeros([len(batch), num_pitches])
+    for bin_p in range(24, num_pitches):
+        val = np.power(batch[:, pitches == bin_p], 2.0).sum(axis=1) ** 0.5
+        pitch_map[:, bin_p] += val
 
     return np.array([pitch_map[:, 24+n::12].mean(axis=1) for n in range(12)]).T
 
@@ -233,19 +245,27 @@ def main(args):
         Initialized argument object.
     """
     param_values = load_parameters(args.parameter_file)
-    learned_fx = build_network(param_values)
+    fx = build_network(param_values)
+
+    def learned_fx(data):
+        return fx(cqt_pool(data))
+
     learned_features = audio_to_chroma(
-        args.input_wavfile, args.hopsize, learned_fx)
+        args.input_wavfile, args.hopsize, learned_fx, 0.0)
     pcp_features = audio_to_chroma(
-        args.input_wavfile, args.hopsize, dft_pcp)
+        args.input_wavfile, args.hopsize, dft_pcp, 2.0)
 
     fig = figure()
     ax1 = fig.add_subplot(2, 1, 1)
     ax2 = fig.add_subplot(2, 1, 2)
-    ax1.imshow(pcp_features.T, interpolation='nearest', aspect='auto')
-    ax2.imshow(learned_features.T, interpolation='nearest', aspect='auto')
+    ax1.imshow(np.flipud(pcp_features.T), interpolation='nearest', aspect='auto')
+    ax2.imshow(np.flipud(learned_features.T), interpolation='nearest', aspect='auto')
     ax1.set_ylabel("PCP")
+    ax1.set_yticks(range(12))
+    ax1.set_yticklabels(PITCH_CLASSES[::-1])
     ax2.set_ylabel("Learned")
+    ax2.set_yticks(range(12))
+    ax2.set_yticklabels(PITCH_CLASSES[::-1])
     show()
 
 
