@@ -27,7 +27,8 @@ QUALITY_MAP = {'maj':   '100010010000',
 
 SAMPLERATE = 11025
 FRAMESIZE = 8192
-BIN0 = 24
+
+
 
 
 def lp_norm(x, p):
