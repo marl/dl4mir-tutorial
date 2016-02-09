@@ -7,8 +7,8 @@ Homepage: http://marl.smusic.nyu.edu
 This script will train a "deep" network to produce chroma. We provide a
 dataset and chord mapping, which you can find here:
 
-    http://files.nyu.edu/ejh333/public/chord_dataset.tgz
-
+    https://www.dropbox.com/s/di7accx4dpoa7js/chord_dataset.tgz?dl=0
+    
 Training will run for a predefined number of iterations, at which point the
 parameters of the network will be saved to the specified pickle file. You can
 halt training at any time with the standard keyboard interrupt at
