@@ -6,7 +6,7 @@ This script will train a "deep" network to classify monophonic instrument
 feature vectors. For this script to execute, you will need to download the
 provided dataset:
 
-    https://files.nyu.edu/ejh333/public/uiowa_instrument_dataset.tgz
+    https://www.dropbox.com/s/b2oaqyl8nmy15dd/instrument_dataset.tgz?dl=0
 
 Sample call:
 $ python instrument_classifier.py \
